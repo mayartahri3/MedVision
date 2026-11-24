@@ -1,0 +1,77 @@
+# ---------------------------------------------------------------
+# CXR Assistant - central configuration (Phase 1: data)
+# Paths default to Kaggle; override with --config or env CXR_DATA_ROOT
+# ---------------------------------------------------------------
+project:
+  name: cxr-assistant
+  seed: 42
+
+paths:
+  # Kaggle dataset "nih-chest-xrays/data" is mounted here
+  raw_root: /kaggle/input/data
+  # Where resized images + processed CSVs are written
+  cache_root: /kaggle/working/cache
+  processed_dir: data/processed
+  figures_dir: reports/figures
+
+data:
+  metadata_csv: Data_Entry_2017.csv
+  bbox_csv: BBox_List_2017.csv
+  official_test_list: test_list.txt
+  official_trainval_list: train_val_list.txt
+  # Images live in images_001/images ... images_012/images (searched recursively)
+  image_glob: "images*/**/*.png"
+
+labels:
+  # All 14 NIH findings are trained (more supervision signal);
+  # the dashboard focuses on `focus` labels.
+  nih:
+    - Atelectasis
+    - Cardiomegaly
+    - Effusion
+    - Infiltration
+    - Mass
+    - Nodule
+    - Pneumonia
+    - Pneumothorax
+    - Consolidation
+    - Edema
+    - Emphysema
+    - Fibrosis
+    - Pleural_Thickening
+    - Hernia
+  # NIH has no "Lung Opacity" label. We derive an approximation:
+  # positive if ANY of these parenchymal-opacity findings is present.
+  # (CheXpert/RSNA provide a native label - revisit when you add them.)
+  derived:
+    Lung_Opacity: [Infiltration, Consolidation, Pneumonia, Edema, Atelectasis]
+  focus: [Pneumonia, Cardiomegaly, Lung_Opacity, Effusion]
+
+split:
+  # Test = official NIH test_list (already patient-disjoint).
+  # Validation carved out of train_val BY PATIENT.
+  val_fraction: 0.10
+  # Keep only frontal views? NIH contains PA and AP.
+  views: [PA, AP]
+
+preprocess:
+  cache_size: 320        # size images are resized to on disk (from 1024)
+  image_size: 224        # network input (224 for DenseNet; 320 later if GPU allows)
+  in_channels: 3         # grey repeated to 3 channels for ImageNet weights
+  normalization: imagenet  # imagenet | xrv (torchxrayvision, used in Step 4)
+
+augment:
+  rotate_deg: 10
+  scale: [0.9, 1.1]
+  translate_frac: 0.05
+  contrast_gamma: [0.8, 1.2]
+  brightness: 0.1
+  noise_std: 0.01
+  prob: 0.5
+  # NO horizontal flips: they move the heart to the right side and
+  # corrupt laterality-dependent findings (Cardiomegaly).
+  hflip: false
+
+loader:
+  batch_size: 32   # Kaggle T4 at 224px; use 8-16 locally (GTX 1650, 4 GB)
+  num_workers: 4

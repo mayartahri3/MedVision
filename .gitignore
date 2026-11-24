@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+.env
+
+# Data never goes to git (DVC tracks the small processed CSVs)
+data/raw/
+data/synthetic*/
+/data/processed/*.csv
+*.png
+!reports/figures/*.png
+*.dcm
+
+# Training artefacts
+mlruns/
+checkpoints/
+*.pt
+*.onnx
