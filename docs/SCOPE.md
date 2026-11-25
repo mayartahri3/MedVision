@@ -49,6 +49,7 @@ any use for actual clinical decisions.
 | Calibration (ECE after Platt scaling on val, measured on test) | ≤ 0.05 |
 | Grad-CAM pointing game on NIH bounding boxes | reported (no fixed target) |
 | Every report contains only findings present in the model output | 100% (automated check) |
+| Model selection | by validation AUROC across all experiments (test never used to choose) |
 
 ## Compute plan
 - Training: Kaggle GPU (NIH is available as the Kaggle dataset `nih-chest-xrays/data`).

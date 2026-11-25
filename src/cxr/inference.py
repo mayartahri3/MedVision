@@ -14,6 +14,7 @@ import torch
 
 from cxr.data.io import load_like_cache
 from cxr.data.transforms import build_transforms
+from cxr.evaluation import tta_logits
 from cxr.explain.gradcam import GradCAM, overlay
 from cxr.metrics import apply_platt, sigmoid
 from cxr.models.factory import load_checkpoint
@@ -30,7 +31,9 @@ class Predictor:
         self.model_name = ckpt["model_name"]
         self.labels: list[str] = ckpt["labels"]
         self.pp = ckpt["preprocess"]
-        self.calib = json.loads(Path(calibration).read_text())["per_label"] if calibration else None
+        meta = json.loads(Path(calibration).read_text()) if calibration else {}
+        self.calib = meta.get("per_label")
+        self.tta = bool(meta.get("tta", False))   # calibration was fitted on TTA logits if True
         self.transform = build_transforms({"preprocess": self.pp, "augment": {}}, train=False)
         self.cam = GradCAM(self.model, self.model_name)
 
@@ -51,7 +54,7 @@ class Predictor:
         """explain: 'flagged' (positive + uncertain), 'all', 'none', or a list of labels."""
         disp, x = self.preprocess(path)
         with torch.no_grad():
-            logits = self.model(x)[0].float().cpu().numpy()
+            logits = (tta_logits(self.model, x) if self.tta else self.model(x))[0].float().cpu().numpy()
 
         findings = []
         for i, lab in enumerate(self.labels):

@@ -8,7 +8,8 @@ points at the right place:
   energy   = share of total CAM mass that lies inside the box
   baseline = same metrics for a trivial "always point at the image centre" guess
 
-Usage: python scripts/gradcam_eval.py [--checkpoint best.pt] [--split test|all] [--limit N]
+Usage: python scripts/gradcam_eval.py --experiment densenet121_320 [--split test|all] [--limit N]
+Results are logged to the experiment's MLflow run (metrics explain_* + artifacts explain/).
 Outputs (explain.out_dir): pointing_game.csv, pointing_summary.csv,
                             gradcam_gallery.png, explain_report.md
 """
@@ -20,6 +21,7 @@ from pathlib import Path
 
 import cv2
 import matplotlib
+import mlflow
 matplotlib.use("Agg")
 import matplotlib.patches as patches  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
@@ -30,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from cxr.config import load_config  # noqa: E402
 from cxr.explain.gradcam import overlay  # noqa: E402
 from cxr.inference import Predictor  # noqa: E402
+from cxr.tracking import start_run  # noqa: E402
 
 BBOX_NAME_FIX = {"Infiltrate": "Infiltration"}
 
@@ -58,12 +61,15 @@ def in_box(px, py, bx, by, bw, bh, tol):
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=None)
+    ap.add_argument("--experiment", default=None)
+    ap.add_argument("--run-id", default=None)
+    ap.add_argument("--no-mlflow", action="store_true")
     ap.add_argument("--checkpoint", default=None)
     ap.add_argument("--calibration", default=None)
     ap.add_argument("--split", default="test", choices=["test", "all"])
     ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
-    cfg = load_config(args.config)
+    cfg = load_config(args.config, args.experiment)
     xcfg = cfg["explain"]
     out = Path(xcfg["out_dir"]); out.mkdir(parents=True, exist_ok=True)
 
@@ -137,6 +143,19 @@ def main() -> None:
         "image, the heatmap is diffuse rather than localised.",
         "", "Grad-CAM shows where the model looked, not proof that its reasoning is correct."]),
         encoding="utf-8")
+    if not args.no_mlflow:
+        start_run(cfg, "explain", run_id=args.run_id)
+        try:
+            mlflow.log_metrics({"explain_pointing_acc": float(res.hit.mean()),
+                                "explain_centre_baseline": float(res.center_hit.mean()),
+                                "explain_energy_in_box": float(res.energy_in_box.mean()),
+                                "explain_box_area": float(res.box_area_frac.mean()),
+                                "explain_n_boxes": float(len(res))})
+            mlflow.log_metrics({f"explain_pointing_{l}": float(v) for l, v in summ["pointing_acc"].items()
+                                if l != "ALL"})
+            mlflow.log_artifacts(str(out), artifact_path="explain")
+        finally:
+            mlflow.end_run()
     print(f"Outputs -> {out}")
 
 

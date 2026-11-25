@@ -24,9 +24,12 @@ def forward_with_features(model: nn.Module, name: str, x: torch.Tensor):
         h = m.maxpool(m.relu(m.bn1(m.conv1(x))))
         A = m.layer4(m.layer3(m.layer2(m.layer1(h))))
         logits = m.fc(torch.flatten(m.avgpool(A), 1))
-    elif name == "efficientnet_b0":
+    elif name in ("efficientnet_b0", "efficientnet_v2_s"):
         A = model.features(x)
         logits = model.classifier(torch.flatten(model.avgpool(A), 1))
+    elif name == "convnext_tiny":
+        A = model.features(x)
+        logits = model.classifier(model.avgpool(A))  # LayerNorm2d -> Flatten -> head
     else:
         raise ValueError(name)
     return logits, A

@@ -44,7 +44,11 @@ def fit_platt(logits: np.ndarray, y: np.ndarray) -> tuple[float, float]:
     from sklearn.linear_model import LogisticRegression
     lr = LogisticRegression(C=1e6, max_iter=1000)
     lr.fit(logits.reshape(-1, 1), y.astype(int))
-    return float(lr.coef_[0, 0]), float(lr.intercept_[0])
+    a, b = float(lr.coef_[0, 0]), float(lr.intercept_[0])
+    if a <= 0:  # model anti-correlated on val: never let calibration reverse the ranking
+        print(f"WARNING: Platt slope {a:.3f} <= 0; falling back to identity calibration")
+        return 1.0, 0.0
+    return a, b
 
 
 def apply_platt(logits: np.ndarray, a: float, b: float) -> np.ndarray:
@@ -63,26 +67,38 @@ def ece(y: np.ndarray, p: np.ndarray, n_bins: int = 15) -> float:
     return float(total)
 
 
-def operating_points(y: np.ndarray, p: np.ndarray, sens_target: float,
-                     spec_target: float) -> dict[str, float]:
-    """Decision threshold (max F1) and an uncertainty band [t_low, t_high].
+def band_thresholds(y: np.ndarray, p: np.ndarray, sensitivity: float,
+                    specificity: float) -> dict[str, float]:
+    """Uncertainty band [t_low, t_high] fitted on validation.
 
-    t_low : highest threshold that still catches `sens_target` of positives
-    t_high: lowest threshold whose false-positive rate is <= 1 - spec_target
-    p < t_low -> negative, p >= t_high -> positive, otherwise -> uncertain
+    t_low : highest threshold that still keeps `sensitivity` of positives >= t_low
+            -> p < t_low is called NEGATIVE (rule-out)
+    t_high: lowest threshold whose false-positive rate is <= 1 - specificity
+            -> p >= t_high is called POSITIVE
+    In between -> UNCERTAIN. If the model is good enough that both targets can be
+    met by one threshold (t_low > t_high), there is no uncertain zone.
     """
     fpr, tpr, thr = roc_curve(y, p)
     thr = np.clip(thr, 0, 1)
-    t_low = float(thr[np.argmax(tpr >= sens_target)])
-    ok = np.where(fpr <= 1 - spec_target)[0]
+    t_low = float(thr[np.argmax(tpr >= sensitivity)])
+    ok = np.where(fpr <= 1 - specificity)[0]
     t_high = float(thr[ok[-1]]) if len(ok) else 1.0
+    if t_low > t_high:
+        t_low = t_high = (t_low + t_high) / 2
+    return {"t_low": t_low, "t_high": t_high}
 
-    cand = np.unique(np.quantile(p, np.linspace(0.01, 0.999, 400)))
-    f1 = [_f1(y, p >= t) for t in cand]
-    t_f1 = float(cand[int(np.argmax(f1))])
-    if t_low > t_high:  # weak label: band collapses; keep it ordered
-        t_low, t_high = t_high, t_low
-    return {"threshold": t_f1, "t_low": t_low, "t_high": t_high}
+
+def operating_points(y: np.ndarray, p: np.ndarray, sens_target: float,
+                     spec_target: float) -> dict[str, float]:
+    """Band + `threshold` (= t_high, the 'positive' cut-off) for backward compatibility."""
+    b = band_thresholds(y, p, sens_target, spec_target)
+    return {"threshold": b["t_high"], **b}
+
+
+def status_counts(p: np.ndarray, t_low: float, t_high: float) -> dict[str, float]:
+    return {"pct_negative": float(np.mean(p < t_low)),
+            "pct_uncertain": float(np.mean((p >= t_low) & (p < t_high))),
+            "pct_positive": float(np.mean(p >= t_high))}
 
 
 def _f1(y: np.ndarray, pred: np.ndarray) -> float:
@@ -95,7 +111,7 @@ def threshold_metrics(y: np.ndarray, p: np.ndarray, t: float) -> dict[str, float
     tp = np.sum(pred & (y == 1)); tn = np.sum(~pred & (y == 0))
     fp = np.sum(pred & (y == 0)); fn = np.sum(~pred & (y == 1))
     return {"sensitivity": tp / max(tp + fn, 1), "specificity": tn / max(tn + fp, 1),
-            "ppv": tp / max(tp + fp, 1), "f1": _f1(y, pred)}
+            "ppv": tp / max(tp + fp, 1), "npv": tn / max(tn + fn, 1), "f1": _f1(y, pred)}
 
 
 def bootstrap_auroc_ci(y: np.ndarray, p: np.ndarray, patients: np.ndarray,

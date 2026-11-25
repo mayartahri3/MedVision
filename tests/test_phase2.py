@@ -51,14 +51,14 @@ def test_safe_auc_single_class_is_nan():
 
 
 def test_forward_with_features_matches_model():
-    for name in ("densenet121", "resnet50"):
+    for name in ("densenet121", "resnet50", "convnext_tiny", "efficientnet_v2_s", "efficientnet_b0"):
         m = build_model(name, 15, pretrained=False).eval()
         x = torch.randn(1, 3, 224, 224)
         with torch.no_grad():
             ref = m(x)
             logits, A = forward_with_features(m, name, x)
         assert torch.allclose(ref, logits, atol=1e-4), name
-        assert A.shape[-1] == 7
+        assert A.shape[-1] == 7, name
 
 
 def test_gradcam_shapes_and_range():
@@ -89,3 +89,51 @@ def test_bbox_mapping_square_and_padded():
     bx, by, *_ = to_model_coords((0, 0, 10, 10), (800, 1000), 200)   # padded top/bottom by 100
     assert np.isclose(by, 20) and np.isclose(bx, 0)
     assert in_box(5, 5, 0, 0, 10, 10, 0) and not in_box(20, 5, 0, 0, 10, 10, 2)
+
+
+# ---------------------------------------------------------------- experiments / evaluation core
+def test_band_collapses_for_strong_classifier():
+    from cxr.metrics import band_thresholds
+    y = np.r_[np.zeros(500), np.ones(500)]
+    p = np.r_[RNG.uniform(0, 0.4, 500), RNG.uniform(0.6, 1, 500)]   # perfectly separable
+    b = band_thresholds(y, p, 0.9, 0.9)
+    assert b["t_low"] == b["t_high"]
+
+
+def test_every_experiment_config_builds():
+    from cxr.config import list_experiments, load_config
+    for name in list_experiments():
+        cfg = load_config(experiment=name)
+        assert cfg["experiment"]["name"] == name
+        assert f"/{name}/" in cfg["train"]["checkpoint_dir"]
+        build_model(cfg["model"]["name"], 15, pretrained=False)
+
+
+def test_evaluate_logits_end_to_end(tmp_path):
+    import pandas as pd
+    from cxr.config import all_labels, load_config
+    from cxr.evaluation import evaluate_logits
+    cfg = load_config()
+    cfg["eval"]["n_bootstrap"] = 5
+    labels = all_labels(cfg)
+    n = 600
+    yv = (RNG.random((n, len(labels))) < 0.2).astype(float)
+    yt = (RNG.random((n, len(labels))) < 0.2).astype(float)
+    lv = RNG.normal(0, 1, yv.shape) + 1.5 * yv + 1.0
+    lt = RNG.normal(0, 1, yt.shape) + 1.5 * yt + 1.0
+    df = pd.DataFrame({"Image Index": [f"{i}.png" for i in range(n)], "Patient ID": np.arange(n) // 3,
+                       "view": np.where(np.arange(n) % 2, "PA", "AP")})
+    for i, l in enumerate(labels):
+        df[l] = yt[:, i]
+    s = evaluate_logits(lv, yv, lt, yt, df, labels, cfg, tmp_path, {"model_name": "toy"}, log_to_mlflow=False)
+    assert 0.75 < s["test_mean_auroc_14"] < 0.9
+    assert s["test_mean_ece_calibrated"] < s["test_mean_ece_raw"]
+    for f in ("calibration.json", "logits.npz", "eval_report.md", "band_sweep_val.csv", "status_focus.png"):
+        assert (tmp_path / f).exists(), f
+
+
+def test_tta_keeps_shape():
+    from cxr.evaluation import tta_logits
+    m = build_model("densenet121", 15, pretrained=False).eval()
+    with torch.no_grad():
+        assert tta_logits(m, torch.randn(2, 3, 224, 224)).shape == (2, 15)

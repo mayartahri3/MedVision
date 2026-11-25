@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------
+# Experiments: each entry overrides configs/config.yaml.
+# Run one per Kaggle commit:  python scripts/train.py --experiment <name>
+# Every experiment becomes ONE MLflow run (train + eval + Grad-CAM).
+# ---------------------------------------------------------------
+
+# E1 - baseline (same recipe as the first run, re-run so every model is
+#      traced and evaluated identically)
+densenet121_224:
+  description: "Baseline: DenseNet-121 (CheXNet-style), 224 px, ReduceLROnPlateau"
+  model: {name: densenet121}
+  preprocess: {image_size: 224}
+  loader: {batch_size: 32}
+
+# E2 - same network, higher resolution + modern recipe
+densenet121_320:
+  description: "DenseNet-121 at 320 px, cosine LR + warm-up, label smoothing, EMA"
+  model: {name: densenet121}
+  preprocess: {image_size: 320}
+  loader: {batch_size: 24}
+  train: {epochs: 12, scheduler: cosine, warmup_epochs: 1, label_smoothing: 0.05,
+          ema_decay: 0.999, patience: 4}
+
+# E3 - modern CNN backbone
+convnext_tiny_320:
+  description: "ConvNeXt-Tiny at 320 px, same recipe as E2"
+  model: {name: convnext_tiny}
+  preprocess: {image_size: 320}
+  loader: {batch_size: 32}
+  train: {epochs: 12, lr: 1.0e-4, weight_decay: 0.05, scheduler: cosine, warmup_epochs: 1,
+          label_smoothing: 0.05, ema_decay: 0.999, patience: 4}
+
+# E4 - efficient backbone (fast inference for the app)
+efficientnet_v2_s_320:
+  description: "EfficientNetV2-S at 320 px, same recipe as E2"
+  model: {name: efficientnet_v2_s}
+  preprocess: {image_size: 320}
+  loader: {batch_size: 32}
+  train: {epochs: 12, lr: 2.0e-4, weight_decay: 1.0e-5, scheduler: cosine, warmup_epochs: 1,
+          label_smoothing: 0.05, ema_decay: 0.999, patience: 4}

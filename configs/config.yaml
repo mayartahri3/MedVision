@@ -83,11 +83,13 @@ loader:
 
 # ---------------------------------------------------------------
 # Phase 2: model, training, evaluation, explainability
+# These are the BASELINE values. configs/experiments.yaml overrides them per
+# experiment (python scripts/train.py --experiment <name>).
 # ---------------------------------------------------------------
 model:
-  name: densenet121      # densenet121 | efficientnet_b0 | resnet50
+  name: densenet121      # densenet121 | convnext_tiny | efficientnet_v2_s | efficientnet_b0 | resnet50
   pretrained: true       # ImageNet weights
-  dropout: 0.2           # before the classifier (also enables MC-dropout later)
+  dropout: 0.2           # before the classifier
 
 train:
   epochs: 15
@@ -95,15 +97,32 @@ train:
   weight_decay: 1.0e-5
   amp: true              # mixed precision on GPU
   patience: 3            # early stopping on val mean AUROC (14 NIH labels)
-  lr_patience: 1         # ReduceLROnPlateau: x0.1 after 1 epoch without gain
+  scheduler: plateau     # plateau | cosine
+  lr_patience: 1         # plateau only: x0.1 after 1 epoch without gain
+  warmup_epochs: 0       # cosine only: linear warm-up
+  label_smoothing: 0.0   # targets -> y*(1-e) + e/2 ; helps with noisy NIH labels
+  ema_decay: 0.0         # >0 enables an exponential moving average of weights (e.g. 0.999)
   pos_weight_clip: 50    # Hernia's raw neg/pos ratio (~500) destabilises training
   checkpoint_dir: /kaggle/working/checkpoints
-  mlflow_experiment: cxr-assistant
+
+mlflow:
+  experiment: cxr-assistant
+  system_metrics: true   # GPU/CPU/RAM usage curves (needs psutil + pynvml)
+  log_model: true        # log the network with the MLflow PyTorch flavour
+  register_model: false  # also push to the MLflow Model Registry (cxr-<experiment>)
 
 eval:
   n_bootstrap: 500       # patient-level bootstrap for test-set 95% CIs
-  sensitivity_target: 0.95   # below t_low  -> "negative" (<=5% of positives missed on val)
-  specificity_target: 0.95   # above t_high -> "positive" (<=5% false positives on val)
+  tta: true              # test-time augmentation: average logits over a few mild zooms
+  # 3-way status per label, thresholds fitted on VALIDATION:
+  #   p <  t_low  -> negative   (t_low keeps `sensitivity` of positives above it)
+  #   p >= t_high -> positive   (t_high keeps `specificity` of negatives below it)
+  #   otherwise   -> uncertain
+  band:
+    sensitivity: 0.90
+    specificity: 0.90
+    per_label: {}        # e.g. {Pneumonia: {sensitivity: 0.85, specificity: 0.85}}
+  sweep_targets: [0.80, 0.85, 0.90, 0.95]   # band-width table to justify the choice
   out_dir: /kaggle/working/eval
 
 explain:
