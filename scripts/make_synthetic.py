@@ -53,6 +53,14 @@ def main() -> None:
     df.to_csv(out / "Data_Entry_2017.csv", index=False)
     test_pats = set(rng.choice(df["Patient ID"].unique(), size=n_pat // 5, replace=False))
     (out / "test_list.txt").write_text("\n".join(df[df["Patient ID"].isin(test_pats)]["Image Index"]))
+    # Fake radiologist boxes (same quirky header as the real BBox_List_2017.csv)
+    bb_labels = ["Atelectasis", "Cardiomegaly", "Effusion", "Infiltrate", "Mass", "Nodule",
+                 "Pneumonia", "Pneumothorax"]
+    lines = ["Image Index,Finding Label,Bbox [x,y,w,h],,,"]
+    for name in df["Image Index"].sample(min(40, len(df)), random_state=0):
+        x, y = rng.uniform(50, 300, 2)
+        lines.append(f"{name},{rng.choice(bb_labels)},{x:.1f},{y:.1f},120.0,90.0,,,")
+    (out / "BBox_List_2017.csv").write_text("\n".join(lines))
     print(f"Synthetic dataset: {len(df)} images, {df['Patient ID'].nunique()} patients -> {out}")
 
 

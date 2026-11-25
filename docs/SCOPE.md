@@ -46,7 +46,7 @@ any use for actual clinical decisions.
 |---|---|
 | Mean AUROC (14 labels, official test set) | ≥ 0.80 (published DenseNet-121 baselines report about 0.80–0.84) |
 | Cardiomegaly AUROC | ≥ 0.85 |
-| Calibration (ECE after temperature scaling) | ≤ 0.05 |
+| Calibration (ECE after Platt scaling on val, measured on test) | ≤ 0.05 |
 | Grad-CAM pointing game on NIH bounding boxes | reported (no fixed target) |
 | Every report contains only findings present in the model output | 100% (automated check) |
 

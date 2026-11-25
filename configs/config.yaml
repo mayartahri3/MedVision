@@ -7,8 +7,13 @@ project:
   seed: 42
 
 paths:
-  # Kaggle dataset "nih-chest-xrays/data" is mounted here
-  raw_root: /kaggle/input/data
+  # Kaggle dataset "nih-chest-xrays/data". The mount point differs between
+  # Kaggle versions, so every candidate is tried in order; the first one
+  # containing Data_Entry_2017.csv wins. CXR_DATA_ROOT overrides all of them.
+  raw_root:
+    - /kaggle/input/datasets/nih-chest-xrays/data
+    - /kaggle/input/nih-chest-xrays/data
+    - /kaggle/input/data
   # Where resized images + processed CSVs are written
   cache_root: /kaggle/working/cache
   processed_dir: data/processed
@@ -75,3 +80,32 @@ augment:
 loader:
   batch_size: 32   # Kaggle T4 at 224px; use 8-16 locally (GTX 1650, 4 GB)
   num_workers: 4
+
+# ---------------------------------------------------------------
+# Phase 2: model, training, evaluation, explainability
+# ---------------------------------------------------------------
+model:
+  name: densenet121      # densenet121 | efficientnet_b0 | resnet50
+  pretrained: true       # ImageNet weights
+  dropout: 0.2           # before the classifier (also enables MC-dropout later)
+
+train:
+  epochs: 15
+  lr: 1.0e-4
+  weight_decay: 1.0e-5
+  amp: true              # mixed precision on GPU
+  patience: 3            # early stopping on val mean AUROC (14 NIH labels)
+  lr_patience: 1         # ReduceLROnPlateau: x0.1 after 1 epoch without gain
+  pos_weight_clip: 50    # Hernia's raw neg/pos ratio (~500) destabilises training
+  checkpoint_dir: /kaggle/working/checkpoints
+  mlflow_experiment: cxr-assistant
+
+eval:
+  n_bootstrap: 500       # patient-level bootstrap for test-set 95% CIs
+  sensitivity_target: 0.95   # below t_low  -> "negative" (<=5% of positives missed on val)
+  specificity_target: 0.95   # above t_high -> "positive" (<=5% false positives on val)
+  out_dir: /kaggle/working/eval
+
+explain:
+  pointing_tolerance_px: 15  # in 1024-px space, as in the Grad-CAM pointing-game protocol
+  out_dir: /kaggle/working/explain

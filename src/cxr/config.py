@@ -21,11 +21,39 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
     if os.getenv("CXR_CACHE_ROOT"):
         cfg["paths"]["cache_root"] = os.environ["CXR_CACHE_ROOT"]
 
+    cfg["paths"]["raw_root"] = _resolve_raw_root(cfg)
+
+    # Outputs default to /kaggle/working; CXR_WORK_DIR relocates all of them
+    # (e.g. D:\\cxr_work on Windows) without editing the YAML.
+    work = os.getenv("CXR_WORK_DIR")
+    if work:
+        for sec, key in (("train", "checkpoint_dir"), ("eval", "out_dir"), ("explain", "out_dir")):
+            if sec in cfg and str(cfg[sec][key]).startswith("/kaggle/working"):
+                cfg[sec][key] = str(Path(work) / Path(cfg[sec][key]).relative_to("/kaggle/working"))
+
     # Relative paths are resolved against the project root.
     for key in ("processed_dir", "figures_dir"):
         p = Path(cfg["paths"][key])
         cfg["paths"][key] = str(p if p.is_absolute() else PROJECT_ROOT / p)
     return cfg
+
+
+def _resolve_raw_root(cfg: dict[str, Any]) -> str:
+    """Accept a single path or a list of candidates; return the first that holds the metadata CSV."""
+    roots = cfg["paths"]["raw_root"]
+    roots = [roots] if isinstance(roots, str) else list(roots)
+    marker = cfg["data"]["metadata_csv"]
+    for r in roots:
+        if (Path(r) / marker).exists():
+            return str(r)
+    # Search /kaggle/input as a last resort (handles future layout changes).
+    kaggle = Path("/kaggle/input")
+    if kaggle.exists():
+        for depth in ("*", "*/*", "*/*/*"):  # shallow search; avoids walking 112k images
+            hit = next(kaggle.glob(f"{depth}/{marker}"), None)
+            if hit:
+                return str(hit.parent)
+    return str(roots[0])  # nothing found: scripts will raise a clear FileNotFoundError
 
 
 def all_labels(cfg: dict[str, Any]) -> list[str]:

@@ -18,15 +18,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from cxr.config import load_config  # noqa: E402
-from cxr.data.io import read_xray, to_uint8  # noqa: E402
-
-def pad_to_square(img):
-    h, w = img.shape
-    s = max(h, w)
-    top, left = (s - h) // 2, (s - w) // 2
-    return cv2.copyMakeBorder(img, top, s - h - top, left, s - w - left,
-                              cv2.BORDER_CONSTANT, value=0)
-
+from cxr.data.io import pad_to_square, read_xray, to_uint8  # noqa: E402
 
 def process(args: tuple[str, str, int]) -> bool:
     # size travels with the job: globals are not shared with spawned workers (Windows)

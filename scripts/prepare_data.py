@@ -42,6 +42,10 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_dir = Path(cfg["paths"]["cache_root"]) / f"images_{cfg['preprocess']['cache_size']}"
 
+    print(f"Raw data root: {raw}")
+    if not (raw / cfg["data"]["metadata_csv"]).exists():
+        raise FileNotFoundError(f"{cfg['data']['metadata_csv']} not found in {raw}. "
+                                "Set CXR_DATA_ROOT to the folder that contains it.")
     meta = pd.read_csv(raw / cfg["data"]["metadata_csv"])
     print(f"Metadata rows: {len(meta):,}  |  patients: {meta['Patient ID'].nunique():,}")
 

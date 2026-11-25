@@ -1,6 +1,7 @@
 # Phase 1 - data & preprocessing
 # Install PyTorch first for your platform: https://pytorch.org/get-started/locally/
 torch>=2.2
+torchvision>=0.17
 monai>=1.3
 pydicom>=2.4
 opencv-python-headless>=4.8
@@ -13,6 +14,6 @@ tabulate
 pyyaml
 pytest
 
-# Tracking (used from Step 4; set up now)
+# Tracking
 mlflow>=2.10
 dvc>=3.0
