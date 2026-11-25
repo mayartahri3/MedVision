@@ -6,13 +6,21 @@ cache_path column (written as /kaggle/working/cache/...) is stale.
 This script finds the files, rewrites cache_path, and copies the CSVs into
 data/processed/ so every other script works unchanged.
 
+When a notebook output has many files (our 112k-image cache), Kaggle stores it
+as a single `_output_.zip`. If no splits.csv is found directly, the zip is
+extracted to --extract-dir (local scratch, NOT /kaggle/working, so it is not
+re-saved as output) and searched again.
+
 Usage: python scripts/link_phase1.py                 # auto-detect under /kaggle/input
        python scripts/link_phase1.py --root <dir>    # explicit folder to search
 """
 from __future__ import annotations
 
 import argparse
+import shutil
+import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -29,16 +37,40 @@ def find_one(root: Path, pattern: str, max_depth: int = 7) -> Path | None:
     return None
 
 
+def extract_output_zip(root: Path, dest: Path) -> Path | None:
+    z = find_one(root, "_output_.zip", max_depth=5)
+    if z is None:
+        return None
+    if (dest / ".extracted").exists():
+        print(f"Already extracted: {dest}")
+        return dest
+    dest.mkdir(parents=True, exist_ok=True)
+    print(f"Extracting {z} ({z.stat().st_size / 1e9:.1f} GB) -> {dest} ...", flush=True)
+    if shutil.which("unzip"):  # much faster than zipfile for ~100k small files
+        subprocess.run(["unzip", "-q", "-o", str(z), "-d", str(dest)], check=True)
+    else:
+        with zipfile.ZipFile(z) as f:
+            f.extractall(dest)
+    (dest / ".extracted").touch()
+    return dest
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default=None)
     ap.add_argument("--root", default="/kaggle/input")
+    ap.add_argument("--extract-dir", default="/tmp/phase1_output")
     args = ap.parse_args()
     cfg = load_config(args.config)
     root = Path(args.root)
     size = cfg["preprocess"]["cache_size"]
 
     splits = find_one(root, "splits.csv")
+    if splits is None:
+        extracted = extract_output_zip(root, Path(args.extract_dir))
+        if extracted is not None:
+            root = extracted
+            splits = find_one(root, "splits.csv")
     cache = find_one(root, f"images_{size}")
     if splits is None:
         sys.exit(f"splits.csv not found under {root}. Attach the Phase 1 notebook output "
